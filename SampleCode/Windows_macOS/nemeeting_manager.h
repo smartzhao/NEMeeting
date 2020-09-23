@@ -37,24 +37,38 @@ class RunningStatus : public QObject
 public:
     explicit RunningStatus() {}
     enum Status {
-        MEETING_STATUS_FAILED = -1,
+        MEETING_STATUS_FAILED = MEETING_STATUS_FAILED,
         MEETING_STATUS_IDLE,
+        MEETING_STATUS_WAITING,
         MEETING_STATUS_CONNECTING,
         MEETING_STATUS_INMEETING,
         MEETING_STATUS_DISCONNECTING,
     };
     Q_ENUM(Status)
     enum ExtStatus {
-        MEETING_DISCONNECTING_BY_NORMAL = 0,
-        MEETING_DISCONNECTING_BY_HOST,
+        MEETING_DISCONNECTING_BY_SELF = 0,
+        MEETING_DISCONNECTING_REMOVED_BY_HOST,
+        MEETING_DISCONNECTING_CLOSED_BY_HOST,
+        MEETING_DISCONNECTING_LOGIN_ON_OTHER_DEVICE,
+        MEETING_DISCONNECTING_CLOSED_BY_SELF_AS_HOST,
         MEETING_DISCONNECTING_BY_SERVER,
-        MEETING_DISCONNECTING_BY_KICKOUT,
-        MEETING_DISCONNECTING_BY_MULTI_SPOT
+        MEETING_WAITING_VERIFY_PASSWORD
     };
     Q_ENUM(ExtStatus)
 };
 
-class NEMeetingManager : public QObject, public MeetingServiceListener
+enum MoreItemSubMenuIndex
+{
+    kFirstSubmenu = NEM_MORE_MENU_USER_INDEX + 1,
+    kSecondSubmenu,
+    kThirdSubmue
+};
+
+class NEMeetingManager
+        : public QObject
+        , public NEMeetingStatusListener
+        , public NEMeetingOnInjectedMenuItemClickListener
+        , public NEScheduleMeetingStatusListener
 {
     Q_OBJECT
 public:
@@ -67,16 +81,29 @@ public:
     Q_INVOKABLE void login(const QString& appKey, const QString& accountId, const QString& accountToken);
     Q_INVOKABLE void logout();
     Q_INVOKABLE void showSettings();
-    Q_INVOKABLE void invokeStart(const QString& meetingId, const QString& nickname, bool audio, bool video);
-    Q_INVOKABLE void invokeJoin(const QString& meetingId, const QString& nickname, bool audio, bool video);
+
+    Q_INVOKABLE void scheduleMeeting(const QString& meetingSubject, qint64 startTime, qint64 endTime, const QString& password, bool attendeeAudioOff);
+    Q_INVOKABLE void cancelMeeting(const qint64& meetingUniqueId);
+    Q_INVOKABLE void getMeetingList();
+
+    Q_INVOKABLE void invokeStart(const QString& meetingId, const QString& nickname, bool audio, bool video,
+                                 bool enableChatroom = true, bool enableInvitation = true);
+    Q_INVOKABLE void invokeJoin(const QString& meetingId, const QString& nickname, bool audio, bool video,
+                                bool enableChatroom = true, bool enableInvitation = true);
     Q_INVOKABLE void getPersonalMeetingId();
+    Q_INVOKABLE void getMeetingInfo();
 
     // override virtual functions
     virtual void onMeetingStatusChanged(int status, int code) override;
+    virtual void onInjectedMenuItemClick(const NEMeetingMenuItem &meeting_menu_item) override;
+    virtual void onScheduleMeetingStatusChanged(uint64_t uniqueMeetingId, const int& meetingStatus) override;
 
     // properties
     QString personalMeetingId() const;
     void setPersonalMeetingId(const QString& personalMeetingId);
+
+private:
+    void pushSubmenus(std::vector<NEMeetingMenuItem>& items_list);
 
 signals:
     void error(int errorCode, const QString& errorMessage);
@@ -87,8 +114,16 @@ signals:
     void showSettingsSignal(int errorCode, const QString& errorMessage);
     void startSignal(int errorCode, const QString& errorMessage);
     void joinSignal(int errorCode, const QString& errorMessage);
+    void getCurrentMeetingInfo(const QString& meetingId, bool isHost, bool isLocked);
     void meetingStatusChanged(int meetingStatus, int extCode);
+    void meetingInjectedMenuItemClicked(int itemIndex, const QString& itemGuid, const QString& itemTitle, const QString& itemImagePath);
     void personalMeetingIdChanged();
+    void scheduleSignal(int errorCode, const QString& errorMessage);
+    void cancelSignal(int errorCode, const QString& errorMessage);
+    void getScheduledMeetingList(int errorCode, const QJsonArray& meetingList);
+
+public slots:
+    void onGetMeetingListUI();
 
 private:
     std::atomic_bool    m_initialized;

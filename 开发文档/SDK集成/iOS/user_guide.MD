@@ -8,6 +8,8 @@
 | :------: | :------: | :------- |
 | 2020-07-10  | 1.0.0 | 首次正式发布 |
 | 2020-08-31 | 1.1.0 | 新增如下接口：<br />     `NEMeetingSDK#isInitialized`查询SDK初始化状态<br />     `NEMeetingService#getMeetingStatus`查询当前会议状态<br />     会议设置服务NESettingService用于保存和查询用户的相关会议选项 |
+| 2020-09-04 | 1.2.0 | 新增如下接口：<br />    `NEMeetingService#getCurrentMeetingInfo` 获取当前会议信息<br />    `NEMeetingOptions#noInvite` 配置会议中是否显示"邀请"按钮<br />    `NEMeetingOptions#noChat` 配置会议中是否显示"聊天"按钮<br />    `NEMeetingOptions#injectedMoreMenuItems` <br />    "更多"菜单中的自定义注入菜单项<br />    `MeetingServiceListener增加onInjectedMenuItemClick:meetingInfo:`<br />    自定义菜单按钮点击事件回调 |
+| 2020-09-18 | 1.2.3 | 新增如下接口：<br /><br />`NEJoinMeetingParams#passwork` 新增密码入会字段<br />`NEMeetingStatus#MEETING_STATUS_WAITING` 新增会议等待状态<br />`NEMeetingCode#MEETING_WAITING_VERIFY_PASSWORD` 会议等待状态类型<br />`NEMeetingInfo#password、subject、startTime、endTime`会议信息字段<br />`NEMeetingSDK#getPreMeetingService` 会议预约服务<br />`NEPreMeetingService#createScheduleMeetingItem`创建一个会议条目<br />`NEPreMeetingService#scheduleMeeting:callback:`预定会议<br />`NEPreMeetingService#cancelMeeting:callback:`取消已预定的会议<br />`NEPreMeetingService#getMeetingList:callback:`查询特定状态会议列表<br />`NEPreMeetingService#addListener:`注册会议事件回调<br />`NEPreMeetingService#removeListener`反注册会议事件回调<br />`NEScheduleMeetingListener#onScheduleMeetingStatusChange`会议状态回调 |
 
 ## 快速接入
 
@@ -285,6 +287,242 @@ NEMeetingService *meetingServce = [NEMeetingSDK getInstance].getMeetingService;
 
 --------------------
 
+### 创建预约会议
+
+#### 描述
+
+在已登录状态下，预约一个会议
+
+#### 业务流程
+
+1. 创建预约会议
+
+```objc
+//获取会议预约服务
+NEPreMeetingService *premeetingService = [NEMeetingSDK getInstance].getPreMeetingService;
+
+//预定会议的Item
+NEMeetingItem *item = [premeetingService createScheduleMeetingItem];
+uint64_t startTimeS = [[NSDate date] timeIntervalSince1970];
+item.subject = @"xxx预定的会议";        //会议主题
+item.startTime = startTimeS * 1000;          //会议开始时间，单位ms
+item.endTime = (startTimeS + 30*60) * 1000;  //会议结束时间，单位ms
+item.password = @"123456";            //入会密码，也可以不填
+NEMeetingItemSetting *setting = [[NEMeetingItemSetting alloc] init];
+setting.attendeeAudioOff = NO;        //入会时打开音频开关
+```
+
+2. 调用接口并进行回调处理，可根据错误码判断是否成功
+
+```objc
+//预定会议
+[premeetingService scheduleMeeting:item 
+                          callback:^(NSInteger resultCode, NSString * _Nonnull resultMsg, NEMeetingItem * _Nonnull item) {
+        if (resultCode == ERROR_CODE_SUCCESS) { 
+            //预定成功
+            //返回的item里面会更新服务端下发的只读属性（meetingUniqueId, meetingId, updateTime）
+            //请以返回的item为准，替换掉之前申请的item
+        } else {
+						//预定失败, resultCode 参考 NEMeetingErrorCode
+        }
+}];
+```
+
+#### 注意事项
+
+- 预约会议时，scheduleMeeting接口中的参数NEMeetingItem，必须是createScheduleMeetingItem返回的对象。
+
+--------------------
+
+### 取消预约会议
+
+#### 描述
+
+在已登录状态下，取消一个预约会议
+
+#### 业务流程
+
+```objc
+//获取会议预约服务
+NEPreMeetingService *premeetingService = [NEMeetingSDK getInstance].getPreMeetingService;
+
+ //预定成功后返回的item
+NEMeetingItem *item = self.item;
+[preMeetingService cancelMeeting:item.meetingUniqueId 
+                   callback:^(NSInteger resultCode, NSString *resultMsg) {
+        if (resultCode == ERROR_CODE_SUCCESS) {
+						//取消成功
+        } else {
+						//取消失败, resultCode 参考 NEMeetingErrorCode
+        }
+}];
+```
+
+#### 注意事项
+
+- 取消预约会议的参数meetingUniqueId是服务端返回的唯一码，预约会议成功后返回的NEMeetingItem#meetingUniqueId中获取。
+- 会议状态在进行中、已回收状态或者已超过结束时间，是无法取消。
+
+--------------------
+
+### 查询预定会议信息
+
+#### 描述
+
+在已登录状态下，查询一个预约会议
+
+#### 业务流程
+
+```objc
+//获取会议预约服务
+NEPreMeetingService *premeetingService = [NEMeetingSDK getInstance].getPreMeetingService;
+
+//查询操作
+[premeetingService getMeetingItemById:_item.meetingUniqueId
+                             callback:^(NSInteger resultCode, 
+                                        NSString * _Nonnull resultMsg, 
+                                        NEMeetingItem * _Nonnull item) {
+        if (resultCode == ERROR_CODE_SUCCESS) {
+						//查询成功
+        } else {
+            //查询失败
+        }
+}];
+```
+
+#### 注意事项
+
+- 查询预约会议的参数meetingUniqueId是服务端返回的唯一码，从NEMeetingItem#meetingUniqueId处获取。
+
+--------------------
+
+### 查询特定状态下的预定会议列表
+
+#### 描述
+
+在已登录状态下，查询特定状态下的预约会议列表
+
+#### 业务流程
+
+```objective-c
+//获取会议预约服务
+NEPreMeetingService *premeetingService = [NEMeetingSDK getInstance].getPreMeetingService;
+
+//待查询状态
+NSArray *meetingStatus = @[@(NEMeetingItemStatusInit),
+                           @(NEMeetingItemStatusStarted),
+                            @(NEMeetingItemStatusEnded)];
+
+//查询列表
+[premeetingService getMeetingList:meetingStatus
+                         callback:^(NSInteger resultCode, NSString * _Nonnull resultMsg, 
+                                    NSArray<NEMeetingItem *> * _Nonnull items) {
+        if (resultCode == ERROR_CODE_SUCCESS) {
+						//查询成功
+        } else {
+            //查询失败
+        }
+ }];
+```
+
+#### 注意事项
+
+- 查询特定状态下的预约会议列表在时间范围上，是默认返回最近一周的。
+
+--------------------
+
+### 监听预约会议状态
+
+#### 描述
+
+通过注册会议状态回调接口，可获取到预约会议状态变更的通知。
+
+#### 业务流程
+
+```objc
+//注册事件回调
+[[NEMeetingSDK getInstance].getPreMeetingService addListener:self];
+
+//实现回调方法
+- (void)onScheduleMeetingStatusChange:(NSArray<NEMeetingItem *> *)changedMeetingItemList
+                          incremental:(BOOL)incremental {
+   if (incremental) {
+     //进行全量更新
+   } else {
+     //进行增量更新
+   }
+}
+
+//反注册事件回调（在不需要的时候移除，例如在dealloc方法中）
+[[NEMeetingSDK getInstance].getPreMeetingService removeListener:self];
+```
+
+#### 注意事项
+
+- 在SDK初始化成功后可以调用
+- 会议状态变更回调，一次回调可能包含多个会议信息的变更
+
+--------------------
+
+### 监听会议状态
+
+#### 描述
+
+通过注册会议状态回调接口，可获取到会议状态变更的通知。
+
+#### 业务流程
+
+1. 注册delegate，在回调中接收会议状态。
+
+```objective-c
+//会议添加监听
+[[NEMeetingSDK getInstance].getMeetingService addListener:self];
+
+//MeetingServiceListener协议实现
+- (void)onMeetingStatusChanged:(NEMeetingEvent *)event {
+     //根据event处理相关业务
+}
+```
+
+2. 停止接收会议状态
+
+```objective-c
+[[NEMeetingSDK getInstance].getMeetingService removeListener:self];
+```
+
+#### 注意事项
+
+- 在SDK初始化成功后可以调用
+
+--------------------
+
+### 获取当前会议信息
+
+#### 描述
+
+在完成登录授权状态下，获取当前账号关联的个人会议ID
+
+#### 业务流程
+
+1. 确认已经通过入会方式（加入会议/创建会议/匿名入会）在会议内
+2. 调用接口并进行回调处理。该接口的回调数据类型为NEMeetingInfo对象类型；如果当前无正在进行中的会议，则回调数据对象为空，错误原因请参考错误码类型。
+
+```objective-c
+ [[NEMeetingSDK getInstance].getMeetingService getCurrentMeetingInfo:^(NSInteger resultCode, NSString * _Nonnull resultMsg, NEMeetingInfo * _Nonnull info) {
+    if (resultCode != ERROR_CODE_SUCCESS) {
+        //查询失败
+    } else {
+       //查询成功
+    }
+}];
+```
+
+#### 注意事项
+
+- 在SDK进入会议状态，才能获取当前会议信息
+
+--------------------
+
 ### 获取个人会议号
 
 #### 描述
@@ -316,6 +554,57 @@ NEAccountService *accountService = [NEMeetingSDK getInstance].getAccountService;
 
 --------------------
 
+### 自定义会中【更多】菜单内容
+
+#### 描述
+
+在更多菜单中注入自定义选项，方便用户业务扩展。
+
+#### 业务流程
+
+	1. 配置匿名入会/创建会议/加入会议的Options相关参数，增加自定义列表
+
+  ```objective-c
+NEJoinMeetingOptions *options = [[NEJoinMeetingOptions alloc] init];
+options.noChat = NO;
+options.noInvite = NO;
+
+//配置自定义菜单
+NSMutableArray *menuItems = [NSMutableArray array];
+for (int i = 0; i < 3; i++) { //最多不能超过3个，超过之后只取前3个
+    NEMeetingMenuItem *item = [[NEMeetingMenuItem alloc] init];
+    item.itemId = 100 + i; //必须大于100，且要保证不重复
+    item.title = [@"测试Title" stringByAppendingString:@(i).stringValue];
+}
+options.injectedMoreMenuItems = menuItems;
+  ```
+
+2. 设置回调接口开始监听，并在回调方法中处理自定义按钮事件
+
+```objective-c
+//添加回调监听
+[[NEMeetingSDK getInstance].getMeetingService addListener:self];
+
+//实现MeetingServiceListener协议方法
+- (void)onInjectedMenuItemClick:(NEMeetingMenuItem *)menuItem
+                    meetingInfo:(NEMeetingInfo *)meetingInfo {
+      //menuItem 是点击的item，需要用户根据itemId进行匹配
+      //meetingInfo 是当前的会议状态
+}
+
+```
+
+#### 注意事项
+
+- 自定义会中【更多】菜单内容，需要在入会前完成设置，在会议中设置不会生效
+- 默认【更多】菜单内容中的邀请和聊天，支持隐藏/显示配置
+- 合法的自定义菜单项需满足以下条件：
+  - itemId >= 100，且为整数Int类型
+  - title不为空和空格（对空格做trim处理），且长度不大于10字符
+- 会议自定义菜单项，更多菜单中最多支持添加三个自定义菜单项，如果超过三个仅显示前三个合法自定义按钮
+
+--------------------
+
 ### 注销
 
 #### 描述
@@ -339,6 +628,8 @@ NEAccountService *accountService = [NEMeetingSDK getInstance].getAccountService;
 #### 注意事项
 
 - 账号注销后，登录状态被清空，不再允许创建会议
+
+--------------------
 
 ### 使用会议设置服务
 

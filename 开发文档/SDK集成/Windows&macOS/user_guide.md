@@ -2,6 +2,15 @@
 
 网易会议 Windows/macOS SDK 提供了一套简单易用的接口，允许开发者通过调用 NEMeeting SDK (以下简称SDK) 提供的API，快速地集成音视频会议功能至现有桌面应用中。
 
+## 变更记录
+
+| 日期 | 版本 | 变更内容 |
+| :------: | :------: | :------- |
+| 2020-07-10  | 1.0.0 | 首次正式发布 |
+| 2020-08-31 | 1.1.0 | 新增如下接口：<br />`NEMeetingSDK#isInitialized`查询SDK初始化状态<br />     `NEMeetingService#getMeetingStatus`查询当前会议状态<br />     会议设置服务NESettingService用于保存和查询用户的相关会议选项 |
+| 2020-09-04 | 1.2.0 | 新增如下接口：<br />`NEMeetingService#getCurrentMeetingInfo` 获取当前会议信息<br />    `NEMeetingOptions#noInvite` 配置会议中是否显示"邀请"按钮<br />    `NEMeetingOptions#noChat` 配置会议中是否显示"聊天"按钮<br />    `NEMeetingOptions#injectedMoreMenuItems` <br />    "更多"菜单中的自定义注入菜单项<br />    `MeetingServiceListener增加onInjectedMenuItemClick:meetingInfo:`<br />    自定义菜单按钮点击事件回调 |
+| 2020-09-18 | 1.2.3 | 新增如下接口：<br />`NEJoinMeetingParams#passwork` 新增密码入会字段<br />`NEMeetingStatus#MEETING_STATUS_WAITING` 新增会议等待状态<br />`NEMeetingCode#MEETING_WAITING_VERIFY_PASSWORD` 会议等待状态类型<br />`NEMeetingInfo#password、subject、startTime、endTime`会议信息字段<br />`NEMeetingSDK#getPreMeetingService` 会议预约服务<br />`NEPreMeetingService#scheduleMeeting:callback:`预定会议<br />`NEPreMeetingService#cancelMeeting:callback:`取消已预定的会议<br />`NEPreMeetingService#getMeetingList:callback:`查询特定状态会议列表<br />`NEPreMeetingService#registerScheduleMeetingStatusListener:`注册预约会议事件回调<br />`NEScheduleMeetingListener#onScheduleMeetingStatusChanged`会议状态回调 |
+
 ## 环境要求
 
 | 名称 | 要求 |
@@ -13,9 +22,8 @@
 
 #### SDK 引入
 
- - [点击此处下载 Windows C++ SDK](http://yx-web.nos.netease.com/package/1598620236/NEMeeting_SDK_Windows_v1.1.0.zip)
- - [点击此处下载 macOS C++ SDK](http://yx-web.nos.netease.com/package/1598620333/NEMeeting_SDK_macOS_v1.1.0.zip)
-
+ - [点击此处下载 Windows C++ SDK](http://yx-web.nos.netease.com/package/1600509352/NEMeeting_SDK_Windows_v1.2.3.zip)
+ - [点击此处下载 macOS C++ SDK](http://yx-web.nos.netease.com/package/1600509598/NEMeeting_SDK_macOS_v1.2.3.zip)
 
 **1）Windows 开发环境配置**
 
@@ -141,11 +149,22 @@ if (meetingService)
     params.meetingId = byteMeetingId.data();
     // 指定您加入会议后使用的昵称
     params.displayName = byteNickname.data();
-
-    // 设置是否在加入会议后启用视频和音频设备
+    // 设置是否在加入会议后启用视频和音频设备，是否显示邀请和聊天室按钮
     NEStartMeetingOptions options;
     options.noAudio = !audio;
     options.noVideo = !video;
+    options.noChat = !enableChatroom;
+    options.noInvite = !enableInvitation;
+    // 通过 options 设置自定义菜单
+    auto applicationPath = qApp->applicationDirPath();
+    for (auto i = 0; i < 3; i++)
+    {
+        NEMeetingMenuItem item;
+        item.itemId = NEM_MORE_MENU_USER_INDEX + i + 1;
+        item.itemTitle = QString(QStringLiteral("Submenu") + QString::number(i + 1)).toStdString();
+        item.itemImage = QString(applicationPath + "/submenu_icon.png").toStdString();
+        options.injected_more_menu_items_.push_back(item);
+    }
     meetingService->startMeeting(params, options, [this](NEErrorCode errorCode, const std::string& errorMessage) {
         // ... 创建会议后的回调函数
     });
@@ -166,14 +185,116 @@ if (meetingService)
     // 指定您加入到会议后使用的昵称
     params.displayName = byteNickname.data();
 
-    // 设置是否在加入会议后启用视频和音频
+    // 设置是否在加入会议后启用视频和音频，是否显示邀请和聊天室按钮
     NEJoinMeetingOptions options;
     options.noAudio = !audio;
     options.noVideo = !video;
+    options.noChat = !enableChatroom;
+    options.noInvite = !enableInvitation;
+    // 通过 options 设置自定义菜单
+    auto applicationPath = qApp->applicationDirPath();
+    for (auto i = 0; i < 3; i++)
+    {
+        NEMeetingMenuItem item;
+        item.itemId = NEM_MORE_MENU_USER_INDEX + i + 1;
+        item.itemTitle = QString(QStringLiteral("Submenu") + QString::number(i + 1)).toStdString();
+        item.itemImage = QString(applicationPath + "/submenu_icon.png").toStdString();
+        options.injected_more_menu_items_.push_back(item);
+    }
     meetingService->joinMeeting(params, options, [this](NEErrorCode errorCode, const std::string& errorMessage) {
         // 加入会议的回调，可通过返回值判断是否成功
     });
 }
+```
+
+在加入或者创建会议前后，您可能需要关注议的创建/加入进度以及会议中状态的变更通知，如需关注这些信息，您需要先继承 `NEMeetingStatusListener`，然后实现 `onMeetingStatusChanged` 通知，并将该子类注册到监听队列中。示例代码如下：
+
+```
+// 继承子类并覆写 
+
+class NEMeetingSDKManager : public NEMeetingStatusListener
+{
+public:
+    virtual void onMeetingStatusChanged(int status, int code) override
+    {
+        // ...
+    }
+}
+
+// 将该类对象注册到监听队列中
+auto ipcMeetingService = NEMeetingSDK::getInstance()->getMeetingService();
+if (ipcMeetingService)
+    ipcMeetingService->addMeetingStatusListener(listener);
+```
+
+创建或加入会议完成后，您可以获取会议的一些基本信息，示例如下：
+
+```C++
+auto meetingService = NEMeetingSDK::getInstance()->getMeetingService();
+if (meetingService)
+{
+    meetingService->getCurrentMeetingInfo([this](NEErrorCode errorCode, const std::string& errorMessage, const NEMeetingInfo& meetingInfo) {
+        // 获取会议信息后的回调函数，您可以通过 meetingInfo 获取所需信息
+    });
+}
+```
+
+**5) 会议预约**
+
+登录账户后您可以进行会议预约相关操作，以下代码演示了如何预约及获取已经预约的会议，并监控预约的会议状态变更。
+
+```C++
+// 预约一个会议
+auto ipcPreMeetingService = NEMeetingSDK::getInstance()->getPremeetingService();
+if (ipcPreMeetingService)
+{
+    NEMeetingItem item;
+    item.subject = meetingSubject.toUtf8().data();
+    item.startTime = startTime;
+    item.endTime = endTime;
+    item.password = password.toUtf8().data();
+    item.setting.attendeeAudioOff = attendeeAudioOff;
+
+    ipcPreMeetingService->scheduleMeeting(item, [this](NEErrorCode errorCode, const std::string& errorMessage, const NEMeetingItem& item) {
+        // ...
+    });
+}
+```
+
+```C++
+// 取消预约会议
+auto ipcPreMeetingService = NEMeetingSDK::getInstance()->getPremeetingService();
+if (ipcPreMeetingService)
+{
+    ipcPreMeetingService->cancelMeeting(meetingUniqueId, [this](NEErrorCode errorCode, const std::string& errorMessage) {
+        // ...
+    });
+}
+```
+
+```C++
+// 获取会议列表
+auto ipcPreMeetingService = NEMeetingSDK::getInstance()->getPremeetingService();
+if (ipcPreMeetingService)
+{
+    std::list<NEMeetingItemStatus> status;
+    status.push_back(MEETING_INIT);
+    status.push_back(MEETING_STARTED);
+    status.push_back(MEETING_ENDED);
+    ipcPreMeetingService->getMeetingList(status, [this](NEErrorCode errorCode, const std::string& errorMessage, std::list<NEMeetingItem>& meetingItems) {
+        // ...
+    });
+}
+```
+
+当您已经预约了几个会议后，会议可能随时有人加入、离开，此时您可以监听会议状态的变更通知实时更新 UI 上显示的会议当前状态：
+
+```C++
+// 实现一个 NEScheduleMeetingStatusListener 子类并覆写 `onScheduleMeetingStatusChanged` 方法
+// 将该子类通过会议预约的服务注册到监听队列中即可关注预约会议的状态变更。
+auto ipcPreMeetingService = NEMeetingSDK::getInstance()->getPremeetingService();
+if (ipcPreMeetingService)
+    ipcPreMeetingService->registerScheduleMeetingStatusListener(this);
 ```
 
 **4）注销登录**
